@@ -48,7 +48,7 @@ class VideoExtractor:
             
             encrypted_data = response.text
 
-            # CRYPTO WORKS ON RAILWAY
+            # CRYPTO DECRYPTION
             key = bytes.fromhex(self.key_hex)
             iv = bytes.fromhex(self.iv_hex)
             ciphertext = bytes.fromhex(encrypted_data)
@@ -101,9 +101,10 @@ def home():
         'endpoints': {
             '/api/get-stream?title=MOVIE_TITLE': 'Get stream by title',
             '/api/direct-extract?video_id=FILE_CODE': 'Get stream by file_code'
-        }
+        },
+        'example': '/api/get-stream?title=wednesday.s01e02'
     })
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
+    port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port)
