@@ -18,7 +18,7 @@ class VideoExtractor:
         """Get video ID from HLS worker"""
         try:
             encoded_title = quote(title)
-            worker_url = f"https://hlsworker.watchoutofficial2006.workers.dev/?title={encoded_title}"
+            worker_url = f"curl 'https://hlsworker.infinitynews2021.workers.dev/?title={encoded_title}"
             
             response = requests.get(worker_url, headers={"User-Agent": self.user_agent})
             
