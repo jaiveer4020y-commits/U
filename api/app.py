@@ -14,8 +14,8 @@ class VideoExtractor:
         self.key_hex = "6b69656d7469656e6d75613931316361"
         self.iv_hex = "313233343536373839306f6975797472"
         
-    def get_video_id(self, title):
-        """Get video ID from HLS worker"""
+    def get_id(self, title):
+        """Get ID from HLS worker"""
         try:
             encoded_title = quote(title)
             worker_url = f"curl 'https://netout.pages.dev/api/rpm?search={encoded_title}"
@@ -40,7 +40,7 @@ class VideoExtractor:
                 "User-Agent": self.user_agent
             }
 
-            api_url = f'{domain}/api/v1/video?id={video_id}'
+            api_url = f'{domain}/api/v1/video?id={id}'
             response = requests.get(api_url, headers=headers)
             
             if response.status_code != 200:
@@ -64,7 +64,7 @@ class VideoExtractor:
                 'success': True,
                 'm3u8_url': video_url,
                 'headers': headers,
-                'video_id': video_id
+                'id': id
             }
                 
         except Exception as e:
