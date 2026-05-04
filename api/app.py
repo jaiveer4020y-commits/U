@@ -25,7 +25,7 @@ class VideoExtractor:
             if response.status_code == 200:
                 data = response.json()
                 if data.get('status') == 200 and data.get('data', {}).get('name'):
-                    return data['result']['files'][0]['id']
+                    return data['data']['files'][0]['id']
             return None
         except Exception as e:
             print(f"Error getting video ID: {e}")
