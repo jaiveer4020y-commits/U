@@ -4,49 +4,53 @@ from flask import Flask, request, jsonify
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
 from urllib.parse import quote
-import os
 
 app = Flask(__name__)
 
 class VideoExtractor:
     def __init__(self):
         self.user_agent = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36"
+        # Hex keys for AES-128-CBC
         self.key_hex = "6b69656d7469656e6d75613931316361"
         self.iv_hex = "313233343536373839306f6975797472"
         
-    def get_id(self, title):
-        """Get ID from HLS worker"""
+    def get_video_id(self, title):
+        """Search for the video and return the first ID found"""
         try:
             encoded_title = quote(title)
-            worker_url = f"curl 'https://netout.pages.dev/api/rpm?search={encoded_title}"
+            # FIXED: Removed 'curl' prefix and quote from URL string
+            worker_url = f"https://netout.pages.dev/api/rpm?search={encoded_title}"
             
             response = requests.get(worker_url, headers={"User-Agent": self.user_agent})
             
             if response.status_code == 200:
                 data = response.json()
-                if data.get('status') == 200 and data.get('data', {}).get('name'):
-                    return data['data']['files'][0]['id']
+                # FIXED: Logic to match your provided JSON structure (data is a list)
+                if data.get('data') and len(data['data']) > 0:
+                    return data['data'][0]['id']
             return None
         except Exception as e:
             print(f"Error getting video ID: {e}")
             return None
     
     def extract_m3u8(self, video_id):
-        """EXACT SAME EXTRACTOR"""
+        """Fetches and decrypts the stream URL"""
         try:
             domain = "https://watchout.rpmvid.com"
             headers = {
-                "Referer": domain,
+                "Referer": f"{domain}/",
                 "User-Agent": self.user_agent
             }
 
-            api_url = f'{domain}/api/v1/video?id={id}'
+            # FIXED: Changed variable 'id' to 'video_id' to match function argument
+            api_url = f'{domain}/api/v1/video?id={video_id}'
             response = requests.get(api_url, headers=headers)
             
             if response.status_code != 200:
                 return {'success': False, 'error': f'API failed: {response.status_code}'}
             
-            encrypted_data = response.text
+            # Assuming the API returns a raw hex string for decryption
+            encrypted_data = response.text.strip().strip('"')
 
             # CRYPTO DECRYPTION
             key = bytes.fromhex(self.key_hex)
@@ -55,20 +59,20 @@ class VideoExtractor:
 
             cipher = AES.new(key, AES.MODE_CBC, iv)
             plaintext = cipher.decrypt(ciphertext)
+            
+            # PKCS7 Unpadding
             decrypted_data = unpad(plaintext, AES.block_size)
-
             stream_info = json.loads(decrypted_data)
-            video_url = stream_info.get('source')
-
+            
             return {
                 'success': True,
-                'm3u8_url': video_url,
-                'headers': headers,
-                'id': id
+                'm3u8_url': stream_info.get('source'),
+                'title': stream_info.get('title'),
+                'id': video_id
             }
                 
         except Exception as e:
-            return {'success': False, 'error': str(e)}
+            return {'success': False, 'error': f"Decryption/Extraction failed: {str(e)}"}
 
 extractor = VideoExtractor()
 
@@ -78,6 +82,7 @@ def get_stream():
     if not title:
         return jsonify({'success': False, 'error': 'Title parameter required'})
     
+    # FIXED: Method name was mismatched (get_id vs get_video_id)
     video_id = extractor.get_video_id(title)
     if not video_id:
         return jsonify({'success': False, 'error': 'No video found for this title'})
@@ -97,14 +102,13 @@ def direct_extract():
 @app.route('/')
 def home():
     return jsonify({
-        'message': 'Video Extractor API - Working with Crypto',
+        'message': 'Video Extractor API - Active',
         'endpoints': {
-            '/api/get-stream?title=MOVIE_TITLE': 'Get stream by title',
-            '/api/direct-extract?video_id=FILE_CODE': 'Get stream by file_code'
-        },
-        'example': '/api/get-stream?title=wednesday.s01e02'
+            '/api/get-stream?title=name': 'Search and extract',
+            '/api/direct-extract?video_id=id': 'Extract by ID'
+        }
     })
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 10000))
-    app.run(host='0.0.0.0', port=port)
+    # Using port 5000 by default
+    app.run(debug=True, port=5000)
