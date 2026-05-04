@@ -10,31 +10,37 @@ app = Flask(__name__)
 class VideoExtractor:
     def __init__(self):
         self.user_agent = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36"
-        # Hex keys for AES-128-CBC
+        # AES Keys for CBC Decryption
         self.key_hex = "6b69656d7469656e6d75613931316361"
         self.iv_hex = "313233343536373839306f6975797472"
         
     def get_video_id(self, title):
-        """Search for the video and return the first ID found"""
+        """Searches the worker API for a file ID based on the title"""
         try:
             encoded_title = quote(title)
-            # FIXED: Removed 'curl' prefix and quote from URL string
             worker_url = f"https://netout.pages.dev/api/rpm?search={encoded_title}"
             
-            response = requests.get(worker_url, headers={"User-Agent": self.user_agent})
+            print(f"[*] Searching for: {title}")
+            response = requests.get(worker_url, headers={"User-Agent": self.user_agent}, timeout=10)
             
             if response.status_code == 200:
                 data = response.json()
-                # FIXED: Logic to match your provided JSON structure (data is a list)
+                # Accessing the first item in the 'data' list from your JSON structure
                 if data.get('data') and len(data['data']) > 0:
-                    return data['data'][0]['id']
+                    video_id = data['data'][0]['id']
+                    print(f"[*] Found Video ID: {video_id}")
+                    return video_id
+                else:
+                    print(f"[!] No results found in the 'data' list for: {title}")
+            else:
+                print(f"[!] Search API returned status: {response.status_code}")
             return None
         except Exception as e:
-            print(f"Error getting video ID: {e}")
+            print(f"[!] Error in get_video_id: {e}")
             return None
     
     def extract_m3u8(self, video_id):
-        """Fetches and decrypts the stream URL"""
+        """Fetches encrypted stream data and decrypts it using AES-128-CBC"""
         try:
             domain = "https://watchout.rpmvid.com"
             headers = {
@@ -42,17 +48,16 @@ class VideoExtractor:
                 "User-Agent": self.user_agent
             }
 
-            # FIXED: Changed variable 'id' to 'video_id' to match function argument
             api_url = f'{domain}/api/v1/video?id={video_id}'
-            response = requests.get(api_url, headers=headers)
+            response = requests.get(api_url, headers=headers, timeout=10)
             
             if response.status_code != 200:
                 return {'success': False, 'error': f'API failed: {response.status_code}'}
             
-            # Assuming the API returns a raw hex string for decryption
+            # Remove any wrapping quotes from the raw response text
             encrypted_data = response.text.strip().strip('"')
 
-            # CRYPTO DECRYPTION
+            # Prepare Decryption
             key = bytes.fromhex(self.key_hex)
             iv = bytes.fromhex(self.iv_hex)
             ciphertext = bytes.fromhex(encrypted_data)
@@ -60,20 +65,26 @@ class VideoExtractor:
             cipher = AES.new(key, AES.MODE_CBC, iv)
             plaintext = cipher.decrypt(ciphertext)
             
-            # PKCS7 Unpadding
+            # Unpad PKCS7 data
             decrypted_data = unpad(plaintext, AES.block_size)
             stream_info = json.loads(decrypted_data)
-            
+
             return {
                 'success': True,
                 'm3u8_url': stream_info.get('source'),
                 'title': stream_info.get('title'),
-                'id': video_id
+                'id': video_id,
+                'headers_required': {
+                    "Referer": domain,
+                    "User-Agent": self.user_agent
+                }
             }
                 
         except Exception as e:
-            return {'success': False, 'error': f"Decryption/Extraction failed: {str(e)}"}
+            print(f"[!] Extraction Error: {e}")
+            return {'success': False, 'error': str(e)}
 
+# Initialize Extractor
 extractor = VideoExtractor()
 
 @app.route('/api/get-stream', methods=['GET'])
@@ -82,7 +93,6 @@ def get_stream():
     if not title:
         return jsonify({'success': False, 'error': 'Title parameter required'})
     
-    # FIXED: Method name was mismatched (get_id vs get_video_id)
     video_id = extractor.get_video_id(title)
     if not video_id:
         return jsonify({'success': False, 'error': 'No video found for this title'})
@@ -102,13 +112,13 @@ def direct_extract():
 @app.route('/')
 def home():
     return jsonify({
-        'message': 'Video Extractor API - Active',
+        'status': 'Online',
+        'message': 'Video Extractor API',
         'endpoints': {
-            '/api/get-stream?title=name': 'Search and extract',
-            '/api/direct-extract?video_id=id': 'Extract by ID'
+            '/api/get-stream?title=TITLE_HERE': 'Search and get stream',
+            '/api/direct-extract?video_id=ID_HERE': 'Direct extraction'
         }
     })
 
 if __name__ == '__main__':
-    # Using port 5000 by default
-    app.run(debug=True, port=5000)
+    app.run(host='0.0.0.0', port=5000, debug=True)
