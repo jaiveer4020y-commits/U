@@ -18,7 +18,7 @@ class VideoExtractor:
         """Searches the worker API for a file ID based on the title"""
         try:
             encoded_title = quote(title)
-            worker_url = f"https://netout.pages.dev/api/rpm?search={encoded_title}"
+            worker_url = f"https://youout.vercel.app/api/videos?search={encoded_title}"
             
             print(f"[*] Searching for: {title}")
             response = requests.get(worker_url, headers={"User-Agent": self.user_agent}, timeout=10)
