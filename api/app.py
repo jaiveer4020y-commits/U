@@ -1,124 +1,146 @@
-import json
-import requests
-from flask import Flask, request, jsonify
-from Crypto.Cipher import AES
-from Crypto.Util.Padding import unpad
-from urllib.parse import quote
+export const config = {
+  runtime: "nodejs",
+};
 
-app = Flask(__name__)
+export default async function handler(req, res) {
+  // Handle CORS preflight first
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "*");
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
 
-class VideoExtractor:
-    def __init__(self):
-        self.user_agent = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36"
-        # AES Keys for CBC Decryption
-        self.key_hex = "6b69656d7469656e6d75613931316361"
-        self.iv_hex = "313233343536373839306f6975797472"
-        
-    def get_video_id(self, title):
-        """Searches the worker API for a file ID based on the title"""
-        try:
-            encoded_title = quote(title)
-            worker_url = f"https://youout.vercel.app/api/videos?search={encoded_title}"
-            
-            print(f"[*] Searching for: {title}")
-            response = requests.get(worker_url, headers={"User-Agent": self.user_agent}, timeout=10)
-            
-            if response.status_code == 200:
-                data = response.json()
-                # Accessing the first item in the 'data' list from your JSON structure
-                if data.get('data') and len(data['data']) > 0:
-                    video_id = data['data'][0]['id']
-                    print(f"[*] Found Video ID: {video_id}")
-                    return video_id
-                else:
-                    print(f"[!] No results found in the 'data' list for: {title}")
-            else:
-                print(f"[!] Search API returned status: {response.status_code}")
-            return None
-        except Exception as e:
-            print(f"[!] Error in get_video_id: {e}")
-            return None
-    
-    def extract_m3u8(self, video_id):
-        """Fetches encrypted stream data and decrypts it using AES-128-CBC"""
-        try:
-            domain = "https://watchout.rpmvid.com"
-            headers = {
-                "Referer": f"{domain}/",
-                "User-Agent": self.user_agent
-            }
+  if (req.method === "OPTIONS") {
+    return res.status(204).end();
+  }
 
-            api_url = f'{domain}/api/v1/video?id={video_id}'
-            response = requests.get(api_url, headers=headers, timeout=10)
-            
-            if response.status_code != 200:
-                return {'success': False, 'error': f'API failed: {response.status_code}'}
-            
-            # Remove any wrapping quotes from the raw response text
-            encrypted_data = response.text.strip().strip('"')
+  try {
+    const targetUrl = req.query.url;
+    const format = req.query.format || "raw";
+    const source = req.query.source || "1";
 
-            # Prepare Decryption
-            key = bytes.fromhex(self.key_hex)
-            iv = bytes.fromhex(self.iv_hex)
-            ciphertext = bytes.fromhex(encrypted_data)
+    if (!targetUrl) {
+      return res.status(400).json({ error: "Missing 'url' query parameter" });
+    }
 
-            cipher = AES.new(key, AES.MODE_CBC, iv)
-            plaintext = cipher.decrypt(ciphertext)
-            
-            # Unpad PKCS7 data
-            decrypted_data = unpad(plaintext, AES.block_size)
-            stream_info = json.loads(decrypted_data)
+    const decodedUrl = decodeURIComponent(targetUrl);
 
-            return {
-                'success': True,
-                'm3u8_url': stream_info.get('source'),
-                'title': stream_info.get('title'),
-                'id': video_id,
-                'headers_required': {
-                    "Referer": domain,
-                    "User-Agent": self.user_agent
-                }
-            }
-                
-        except Exception as e:
-            print(f"[!] Extraction Error: {e}")
-            return {'success': False, 'error': str(e)}
+    // ✅ Fixed header selection (was overwriting source=2 with source=1)
+    let customHeader = "https://server1.uns.bio/"; // default
 
-# Initialize Extractor
-extractor = VideoExtractor()
+    if (source === "2" || decodedUrl.includes("streamp2p")) {
+      customHeader = "https://server1.uns.bio/";
+    } else if (source === "1") {
+      customHeader = "https://server1.uns.bio/";
+    }
 
-@app.route('/api/get-stream', methods=['GET'])
-def get_stream():
-    title = request.args.get('title')
-    if not title:
-        return jsonify({'success': False, 'error': 'Title parameter required'})
-    
-    video_id = extractor.get_video_id(title)
-    if not video_id:
-        return jsonify({'success': False, 'error': 'No video found for this title'})
-    
-    result = extractor.extract_m3u8(video_id)
-    return jsonify(result)
+    const response = await fetch(decodedUrl, {
+      headers: {
+        Referer: customHeader + "/",
+        Origin: customHeader,
+        "User-Agent":
+          "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
+        Accept: "*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "identity", // avoid gzip so Buffer works cleanly
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "cross-site",
+      },
+      redirect: "follow",
+    });
 
-@app.route('/api/direct-extract', methods=['GET'])
-def direct_extract():
-    video_id = request.args.get('video_id')
-    if not video_id:
-        return jsonify({'success': False, 'error': 'Video ID parameter required'})
-    
-    result = extractor.extract_m3u8(video_id)
-    return jsonify(result)
+    // ✅ Log and forward non-OK responses clearly
+    if (!response.ok) {
+      const body = await response.text();
+      console.error(`[PROXY ERROR] ${response.status} for: ${decodedUrl}`);
+      console.error(`[PROXY BODY] ${body.substring(0, 500)}`);
+      return res.status(response.status).send(body);
+    }
 
-@app.route('/')
-def home():
-    return jsonify({
-        'status': 'Online',
-        'message': 'Video Extractor API',
-        'endpoints': {
-            '/api/get-stream?title=TITLE_HERE': 'Search and get stream',
-            '/api/direct-extract?video_id=ID_HERE': 'Direct extraction'
+    const contentType = response.headers.get("content-type") || "";
+    const base = decodedUrl.substring(0, decodedUrl.lastIndexOf("/") + 1);
+
+    const protocol = req.headers["x-forwarded-proto"] || "https";
+    const host = req.headers["host"];
+    const proxyBase = `${protocol}://${host}/api/proxy?source=${source}&url=`;
+
+    // ───────────────────────────────
+    // 🟩 Handle M3U8 playlists
+    // ───────────────────────────────
+    const isM3U8 =
+      contentType.includes("application/vnd.apple.mpegurl") ||
+      contentType.includes("application/x-mpegurl") ||
+      decodedUrl.includes(".m3u8");
+
+    if (isM3U8) {
+      let text = await response.text();
+
+      // 1. Rewrite URI="..." (encryption keys, maps, etc.)
+      text = text.replace(/URI="([^"]+)"/g, (match, p1) => {
+        try {
+          const fullUrl = new URL(p1, base).href;
+          return `URI="${proxyBase}${encodeURIComponent(fullUrl)}"`;
+        } catch {
+          return match;
         }
-    })
+      });
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+      // 2. Rewrite #EXT-X-MEDIA subtitle/audio/caption track URIs
+      text = text.replace(
+        /TYPE=(SUBTITLES|AUDIO|CLOSED-CAPTIONS)(.*?)URI="([^"]+)"/g,
+        (match, type, middle, uri) => {
+          try {
+            const fullUrl = new URL(uri, base).href;
+            return `TYPE=${type}${middle}URI="${proxyBase}${encodeURIComponent(fullUrl)}"`;
+          } catch {
+            return match;
+          }
+        }
+      );
+
+      // 3. Rewrite segment lines (.ts, .m3u8, .m4s, .vtt, .aac, .mp4)
+      text = text.replace(
+        /^(?!#)(.+(\.m3u8|\.ts|\.m4s|\.vtt|\.aac|\.mp4)(\?.*)?)$/gm,
+        (m) => {
+          try {
+            const trimmed = m.trim();
+            const fullUrl = new URL(trimmed, base).href;
+            return `${proxyBase}${encodeURIComponent(fullUrl)}`;
+          } catch {
+            return m;
+          }
+        }
+      );
+
+      if (format === "json") {
+        res.setHeader("Content-Type", "application/json");
+        return res.status(200).json({ content: text });
+      }
+
+      res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
+      return res.status(200).send(text);
+    }
+
+    // ───────────────────────────────
+    // 🟨 Handle VTT subtitles
+    // ───────────────────────────────
+    if (contentType.includes("text/vtt") || decodedUrl.endsWith(".vtt")) {
+      const text = await response.text();
+      res.setHeader("Content-Type", "text/vtt; charset=utf-8");
+      return res.status(200).send(text);
+    }
+
+    // ───────────────────────────────
+    // 🟥 Handle binary segments (ts, m4s, aac, mp4, keys)
+    // ───────────────────────────────
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    res.setHeader("Content-Type", contentType || "application/octet-stream");
+    res.setHeader("Content-Length", buffer.length);
+    return res.status(200).send(buffer);
+
+  } catch (error) {
+    console.error("[PROXY EXCEPTION]", error);
+    return res.status(500).json({ error: error.message });
+  }
+}
